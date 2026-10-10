@@ -38,6 +38,63 @@ def format_usd(val: float | None) -> str:
     return f"${val:,.2f}"
 
 
+CHAIN_DISPLAY_NAMES = {
+    "ethereum": "Ethereum",
+    "eth": "Ethereum",
+    "solana": "Solana",
+    "sol": "Solana",
+    "bitcoin": "Bitcoin",
+    "btc": "Bitcoin",
+    "arbitrum": "Arbitrum",
+    "arb": "Arbitrum",
+    "base": "Base",
+    "optimism": "Optimism",
+    "op": "Optimism",
+    "polygon": "Polygon",
+    "matic": "Polygon",
+    "bsc": "BSC",
+    "bnb": "BSC",
+    "avalanche": "Avalanche",
+    "avax": "Avalanche",
+    "hyperliquid": "Hyperliquid",
+    "hl": "Hyperliquid",
+    "hyperevm": "HyperEVM",
+    "hevm": "HyperEVM",
+    "tron": "TRON",
+    "trx": "TRON",
+    "sui": "SUI",
+}
+
+
+def format_chain_name(chain: str) -> str:
+    """Format chain identifier into a friendly display name."""
+    return CHAIN_DISPLAY_NAMES.get(chain.lower(), chain.capitalize())
+
+
+def _get_token_type(h: Holding, chain: str) -> str:
+    """Determine human-readable token type for an asset."""
+    if h.is_native:
+        return "Native"
+    c = chain.lower()
+    if c == "solana":
+        return "SPL"
+    if c in ("ethereum", "arbitrum", "base", "optimism", "polygon", "avalanche", "hyperevm"):
+        return "ERC-20"
+    if c == "bsc":
+        return "BEP-20"
+    if c == "tron":
+        return "TRC-20"
+    if c == "sui":
+        return "Coin"
+    if c == "hyperliquid":
+        if "PERP" in h.symbol:
+            return "Perp"
+        if "Margin" in h.name:
+            return "Margin"
+        return "Spot"
+    return "Token"
+
+
 def _build_holdings_table(
     portfolio: Portfolio,
     filtered: List[Holding],
@@ -62,14 +119,7 @@ def _build_holdings_table(
 
     total_val = portfolio.total_usd
     for h in filtered:
-        if h.is_native:
-            token_type = "Native"
-        elif portfolio.chain == "solana":
-            token_type = "SPL"
-        elif portfolio.chain == "ethereum":
-            token_type = "ERC-20"
-        else:
-            token_type = "Token"
+        token_type = _get_token_type(h, portfolio.chain)
 
         if total_val > 0 and h.value_usd is not None:
             pct = (h.value_usd / total_val) * 100
@@ -96,6 +146,67 @@ def _build_holdings_table(
     return table
 
 
+def _build_consolidated_table(
+    items: List[tuple[Portfolio, Holding]],
+    combined_total: float,
+    table_title: str,
+    show_wallet: bool = False,
+) -> Table:
+    table = Table(
+        title=table_title,
+        title_style="bold yellow",
+        show_header=True,
+        header_style="bold blue",
+        border_style="dim",
+        row_styles=["none", "dim"],
+    )
+    table.add_column("Chain", style="bold cyan")
+    if show_wallet:
+        table.add_column("Wallet", style="dim", no_wrap=True)
+    table.add_column("Asset", style="bold", no_wrap=True)
+    table.add_column("Name", style="white")
+    table.add_column("Type", style="dim")
+    table.add_column("Balance", justify="right", style="cyan")
+    table.add_column("Price (USD)", justify="right", style="yellow")
+    table.add_column("Value (USD)", justify="right", style="bold green")
+    table.add_column("Share", justify="right", style="magenta")
+    table.add_column("Contract / Mint", style="dim", no_wrap=True)
+
+    for p, h in items:
+        token_type = _get_token_type(h, p.chain)
+
+        if combined_total > 0 and h.value_usd is not None:
+            pct = (h.value_usd / combined_total) * 100
+            share_str = f"{pct:5.1f}%"
+        else:
+            share_str = "—"
+
+        if h.contract_address:
+            addr = h.contract_address
+            short_addr = f"{addr[:6]}...{addr[-4:]}" if len(addr) > 12 else addr
+        else:
+            short_addr = "Native"
+
+        row = [format_chain_name(p.chain)]
+        if show_wallet:
+            wallet_short = f"{p.address[:6]}...{p.address[-4:]}" if len(p.address) > 12 else p.address
+            row.append(wallet_short)
+
+        row.extend([
+            h.symbol,
+            h.name[:25],
+            token_type,
+            format_balance(h.balance),
+            format_usd(h.price_usd),
+            format_usd(h.value_usd),
+            share_str,
+            short_addr,
+        ])
+        table.add_row(*row)
+
+    return table
+
+
 def render_portfolios(
     portfolios: List[Portfolio],
     min_usd: float = 0.0,
@@ -103,6 +214,7 @@ def render_portfolios(
     sort_by: str = "value",
     as_json: bool = False,
     profile_name: Optional[str] = None,
+    single_table: bool = False,
 ) -> None:
     """Render one or multiple portfolios with a unified total and per-chain breakdowns."""
     if not portfolios:
@@ -115,8 +227,43 @@ def render_portfolios(
         for p in portfolios
     ]
 
+    all_items: List[tuple[Portfolio, Holding]] = []
+    for p, filtered in portfolio_items:
+        for h in filtered:
+            all_items.append((p, h))
+
+    if sort_by == "value":
+        all_items.sort(
+            key=lambda item: (
+                item[1].value_usd is not None,
+                item[1].value_usd if item[1].value_usd is not None else -1.0,
+                item[1].balance,
+            ),
+            reverse=True,
+        )
+    elif sort_by == "balance":
+        all_items.sort(key=lambda item: item[1].balance, reverse=True)
+    elif sort_by == "symbol":
+        all_items.sort(key=lambda item: item[1].symbol.upper())
+
     if as_json:
-        if len(portfolios) == 1:
+        if single_table:
+            data = {
+                "profile": profile_name,
+                "combined_total_usd": round(combined_total, 2),
+                "wallets_count": len(portfolios),
+                "holdings_count": len(all_items),
+                "holdings": [
+                    {
+                        **h.to_dict(),
+                        "chain": p.chain,
+                        "address": p.address,
+                    }
+                    for p, h in all_items
+                ],
+            }
+            print(json.dumps(data, indent=2))
+        elif len(portfolios) == 1:
             p, filtered = portfolio_items[0]
             data = p.to_dict()
             data["holdings"] = [h.to_dict() for h in filtered]
@@ -161,6 +308,31 @@ def render_portfolios(
     console.print()
     console.print(Panel(summary, title=title, border_style="cyan", expand=False))
 
+    if single_table:
+        if all_items:
+            unique_addrs = {p.address for p in portfolios if p.address}
+            if profile_name:
+                table_title = f"Consolidated Holdings ({profile_name}) — ${combined_total:,.2f} USD"
+            elif len(unique_addrs) == 1:
+                table_title = f"Consolidated Holdings ({next(iter(unique_addrs))}) — ${combined_total:,.2f} USD"
+            else:
+                table_title = f"Consolidated Holdings — ${combined_total:,.2f} USD"
+
+            console.print(
+                _build_consolidated_table(
+                    items=all_items,
+                    combined_total=combined_total,
+                    table_title=table_title,
+                    show_wallet=len(unique_addrs) > 1,
+                )
+            )
+            console.print()
+        elif combined_total > 0 or not hide_zero:
+            console.print(
+                f"[dim]No active holdings found matching filter >= ${min_usd:,.2f} USD.[/dim]\n"
+            )
+        return
+
     # Render each wallet table
     for p, filtered in portfolio_items:
         if filtered:
@@ -186,6 +358,7 @@ def render_portfolio(
     hide_zero: bool = True,
     sort_by: str = "value",
     as_json: bool = False,
+    single_table: bool = False,
 ) -> None:
     """Backward-compatible helper that delegates to render_portfolios."""
     portfolios = [portfolio]
@@ -197,4 +370,5 @@ def render_portfolio(
         hide_zero=hide_zero,
         sort_by=sort_by,
         as_json=as_json,
+        single_table=single_table,
     )

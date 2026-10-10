@@ -140,6 +140,13 @@ def parse_args(args=None) -> argparse.Namespace:
         help="Sort holdings by: value (default), balance, or symbol",
     )
     parser.add_argument(
+        "--single-table",
+        "--single",
+        dest="single_table",
+        action="store_true",
+        help="Consolidate all holdings into a single table across all chains and wallets",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output raw JSON instead of formatted terminal table",
@@ -302,6 +309,7 @@ def main(args=None) -> int:
         sort_by=parsed.sort,
         as_json=parsed.json,
         profile_name=parsed.profile or parsed.save,
+        single_table=parsed.single_table,
     )
     return 0
 

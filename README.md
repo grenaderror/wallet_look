@@ -19,6 +19,7 @@ A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses ac
 - **Cross-Chain Derivations**: For single address lookups, automatically inspects SVM/EVM equivalent addresses (Neon EVM Keccak-256 or ENS records).
 - **Live USD Pricing**: Real-time USD rates and asset valuations fetched dynamically via DefiLlama, DexScreener, and Hyperliquid (no paid API keys required).
 - **Rich Terminal UI**: Beautiful formatted tables with balance formatting, USD values, portfolio share %, and token contracts.
+- **Single Table View**: Consolidate all holdings across multiple chains and wallets into a single unified table (`--single-table` / `--single`).
 - **JSON Output**: `--json` flag for scripting, pipelines, or automation.
 - **Filtering & Sorting**: Filter out low-value dust (`-m / --min-value`), hide zero balances, or sort by value, balance, or symbol.
 
@@ -128,6 +129,15 @@ uv run wallet-look <SUI_ADDRESS>
 uv run wallet-look <EVM_ADDRESS> -c hl --json
 ```
 
+### 8. Single Table View (Consolidate All Holdings)
+
+Consolidate holdings across multiple chains and wallets into a single combined table:
+
+```bash
+uv run wallet-look <ETH_ADDRESS> --single-table -m 50
+uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> --single-table
+```
+
 ---
 
 ## Running Tests
@@ -137,4 +147,4 @@ Run the test suite using `pytest` via `uv`:
 ```bash
 uv run pytest
 ```
-*Result: 35 passed.*
+*Result: 44 passed.*
