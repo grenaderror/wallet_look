@@ -17,6 +17,8 @@ class ChainType(str, Enum):
     AVALANCHE = "avalanche"
     HYPERLIQUID = "hyperliquid"
     HYPEREVM = "hyperevm"
+    TRON = "tron"
+    SUI = "sui"
 
 
 @dataclass

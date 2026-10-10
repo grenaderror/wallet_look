@@ -5,6 +5,8 @@ from wallet_look.chains.ethereum import EthereumFetcher
 from wallet_look.chains.evm_sidechain import EvmSidechainFetcher, SIDECHAIN_CONFIGS
 from wallet_look.chains.hyperliquid import HyperliquidFetcher
 from wallet_look.chains.solana import SolanaFetcher
+from wallet_look.chains.sui import SuiFetcher
+from wallet_look.chains.tron import TronFetcher
 from wallet_look.models import ChainType
 
 
@@ -34,6 +36,10 @@ def get_fetcher(chain: ChainType | str) -> BaseChainFetcher:
         return EvmSidechainFetcher(SIDECHAIN_CONFIGS["avalanche"])
     elif normalized in ("hyperevm", "hevm"):
         return EvmSidechainFetcher(SIDECHAIN_CONFIGS["hyperevm"])
+    elif normalized in ("tron", "trx"):
+        return TronFetcher()
+    elif normalized in ("sui",):
+        return SuiFetcher()
     else:
         raise ValueError(f"Unsupported blockchain: {chain}")
 
@@ -45,6 +51,8 @@ __all__ = [
     "BitcoinFetcher",
     "HyperliquidFetcher",
     "EvmSidechainFetcher",
+    "TronFetcher",
+    "SuiFetcher",
     "SIDECHAIN_CONFIGS",
     "get_fetcher",
 ]

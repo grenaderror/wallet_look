@@ -61,13 +61,22 @@ class PricingClient:
             chain_prefix = "solana"
         elif chain_prefix == "btc":
             chain_prefix = "coingecko:bitcoin"
+        elif chain_prefix in ("trx", "tron"):
+            chain_prefix = "tron"
+        elif chain_prefix in ("sui",):
+            chain_prefix = "sui"
 
         for i in range(0, len(token_addresses), chunk_size):
             chunk = token_addresses[i : i + chunk_size]
-            if chain_prefix == "coingecko:bitcoin":
-                coins_param = "coingecko:bitcoin"
-            else:
-                coins_param = ",".join(f"{chain_prefix}:{addr}" for addr in chunk)
+            coins_items = []
+            for addr in chunk:
+                if addr.startswith("coingecko:") or addr.startswith("tron:") or addr.startswith("sui:"):
+                    coins_items.append(addr)
+                elif chain_prefix == "coingecko:bitcoin":
+                    coins_items.append("coingecko:bitcoin")
+                else:
+                    coins_items.append(f"{chain_prefix}:{addr}")
+            coins_param = ",".join(coins_items)
 
             url = f"{self.LLAMA_BASE}/{coins_param}"
             try:
@@ -79,10 +88,14 @@ class PricingClient:
                             raw_addr = key.split(":", 1)[1] if ":" in key else key
                             price = val.get("price")
                             symbol = val.get("symbol")
-                            results[raw_addr] = {
+                            decimals = val.get("decimals")
+                            item_data = {
                                 "price": float(price) if price is not None else None,
                                 "symbol": symbol,
+                                "decimals": decimals,
                             }
+                            results[raw_addr] = item_data
+                            results[key] = item_data
             except Exception:
                 # Continue gracefully on transient network errors
                 pass

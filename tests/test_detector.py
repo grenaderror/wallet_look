@@ -1,5 +1,12 @@
 import pytest
-from wallet_look.detector import detect_chain, is_btc_address, is_eth_address, is_sol_address
+from wallet_look.detector import (
+    detect_chain,
+    is_btc_address,
+    is_eth_address,
+    is_sol_address,
+    is_sui_address,
+    is_tron_address,
+)
 from wallet_look.models import ChainType
 
 
@@ -14,6 +21,33 @@ def test_is_eth_address():
     assert is_eth_address("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA9604555") is False  # 44 chars
     assert is_eth_address("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045") is False  # missing 0x
     assert is_eth_address("0xG8dA6BF26964aF9D7eEd9e03E53415D37aA96045") is False  # 'G' invalid hex
+
+
+def test_is_sui_address():
+    # 0x + 64 hex characters = 66 characters
+    valid = "0x0000000000000000000000000000000000000000000000000000000000000002"
+    assert is_sui_address(valid) is True
+    assert is_sui_address(valid.upper().replace("0X", "0x")) is True
+
+    # 42 chars (ETH) is not SUI
+    assert is_sui_address("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045") is False
+    # Non-hex char
+    assert is_sui_address("0x000000000000000000000000000000000000000000000000000000000000000Z") is False
+    # Missing 0x
+    assert is_sui_address("0000000000000000000000000000000000000000000000000000000000000002") is False
+
+
+def test_is_tron_address():
+    # Valid Tron Base58Check address (Tether contract or personal wallet)
+    valid = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+    assert is_tron_address(valid) is True
+
+    # Invalid checksum
+    assert is_tron_address("TR7NHqJEKQxGTCi8q8ZY4pL8otSzgjLj6t") is False
+    # Wrong prefix
+    assert is_tron_address("1R7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t") is False
+    # Wrong length
+    assert is_tron_address("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgj") is False
 
 
 def test_is_sol_address():
@@ -39,6 +73,11 @@ def test_detect_chain():
     assert detect_chain(" 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 ") == ChainType.ETHEREUM
     assert detect_chain("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM") == ChainType.SOLANA
     assert detect_chain("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa") == ChainType.BITCOIN
+    assert (
+        detect_chain("0x0000000000000000000000000000000000000000000000000000000000000002")
+        == ChainType.SUI
+    )
+    assert detect_chain("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t") == ChainType.TRON
 
     with pytest.raises(ValueError, match="Unable to auto-detect blockchain"):
         detect_chain("not_a_crypto_address")

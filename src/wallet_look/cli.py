@@ -37,6 +37,9 @@ CHAIN_CHOICES = [
     "hyperliquid",
     "hyperevm",
     "hevm",
+    "tron",
+    "trx",
+    "sui",
     "all-evm",
 ]
 
@@ -56,7 +59,7 @@ EVM_CHAINS_LIST = [
 def parse_args(args=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="wallet-look",
-        description="Inspect cryptocurrency wallet portfolios (ETH, SOL, BTC, EVM Sidechains, Hyperliquid) with real-time USD prices.",
+        description="Inspect cryptocurrency wallet portfolios (ETH, SOL, BTC, TRON, SUI, EVM Sidechains, Hyperliquid) with real-time USD prices.",
     )
     parser.add_argument(
         "addresses",
@@ -74,6 +77,16 @@ def parse_args(args=None) -> argparse.Namespace:
     parser.add_argument(
         "--btc",
         help="Explicit Bitcoin address to include",
+    )
+    parser.add_argument(
+        "--tron",
+        "--trx",
+        dest="tron",
+        help="Explicit TRON address to include",
+    )
+    parser.add_argument(
+        "--sui",
+        help="Explicit SUI address to include",
     )
     parser.add_argument(
         "-p",
@@ -199,12 +212,16 @@ def main(args=None) -> int:
         target_addresses.append(parsed.sol.strip())
     if parsed.btc:
         target_addresses.append(parsed.btc.strip())
+    if parsed.tron:
+        target_addresses.append(parsed.tron.strip())
+    if parsed.sui:
+        target_addresses.append(parsed.sui.strip())
 
     target_addresses = list(dict.fromkeys(a.strip() for a in target_addresses if a.strip()))
 
     if not target_addresses:
         err_console.print(
-            "[bold red]Error:[/bold red] Please provide at least one wallet address (or --profile / --eth / --sol)."
+            "[bold red]Error:[/bold red] Please provide at least one wallet address (or --profile / --eth / --sol / --tron / --sui)."
         )
         return 1
 

@@ -1,17 +1,21 @@
 # wallet-look
 
-A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses across **Ethereum**, **Solana**, **Bitcoin**, **EVM Sidechains/L2s** (Arbitrum, Base, Optimism, Polygon, BSC, Avalanche), and **Hyperliquid**, displaying full asset holdings with live USD valuations.
+A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses across **Ethereum**, **Solana**, **Bitcoin**, **TRON**, **SUI**, **EVM Sidechains/L2s** (Arbitrum, Base, Optimism, Polygon, BSC, Avalanche), and **Hyperliquid / HyperEVM**, displaying full asset holdings with live USD valuations.
 
 ## Features
 
-- **Multi-Chain Portfolio Tracking**: Inspect multiple wallet addresses simultaneously (e.g. your Solana and Ethereum addresses from Phantom, Backpack, or Ledger).
-- **EVM Sidechains & L2s Auto-Scan**: Concurrently queries **Arbitrum**, **Base**, **Optimism**, **Polygon**, **BNB Smart Chain (BSC)**, and **Avalanche C-Chain** for native and ERC-20 token holdings.
+- **Multi-Chain Portfolio Tracking**: Inspect multiple wallet addresses simultaneously (e.g. your Solana, Ethereum, TRON, and SUI addresses).
+- **EVM Sidechains & L2s Auto-Scan**: Concurrently queries **Arbitrum**, **Base**, **Optimism**, **Polygon**, **BNB Smart Chain (BSC)**, **Avalanche C-Chain**, and **HyperEVM** for native and ERC-20 token holdings.
 - **Hyperliquid L1**: Fetches spot token balances (USDC, HYPE, PURR, etc.) and perpetuals account margin equity & open positions via Hyperliquid's official Info API.
+- **TRON Network**: Queries native TRX (SUN) and TRC-20 tokens (USDT, USDC, USDD, JST, BTT, etc.) via TronGrid API.
+- **SUI Network**: Queries native SUI (MIST) and all Sui coin holdings via the official Sui GraphQL endpoint.
 - **Wallet Profiles**: Save your addresses into named profiles (`--save <name>`) and load them anytime (`--profile <name>`).
 - **Full Portfolio Inspection**:
   - **Ethereum**: Native ETH balance + all ERC-20 token holdings via Ethplorer with public RPC fallback.
   - **Solana**: Native SOL balance + SPL & Token-2022 tokens via public Solana RPC.
   - **Bitcoin**: Native BTC balance via Blockstream public explorer.
+  - **TRON**: Native TRX + TRC-20 token balances via TronGrid.
+  - **SUI**: Native SUI + Sui Move coins via Sui GraphQL API.
 - **Cross-Chain Derivations**: For single address lookups, automatically inspects SVM/EVM equivalent addresses (Neon EVM Keccak-256 or ENS records).
 - **Live USD Pricing**: Real-time USD rates and asset valuations fetched dynamically via DefiLlama, DexScreener, and Hyperliquid (no paid API keys required).
 - **Rich Terminal UI**: Beautiful formatted tables with balance formatting, USD values, portfolio share %, and token contracts.
@@ -27,6 +31,8 @@ A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses ac
 | **Ethereum** | `eth`, `ethereum` | Native ETH + All ERC-20 Tokens (Ethplorer + RPC) |
 | **Solana** | `sol`, `solana` | Native SOL + SPL Tokens + Token-2022 |
 | **Bitcoin** | `btc`, `bitcoin` | Native BTC (Blockstream Explorer) |
+| **TRON** | `tron`, `trx` | Native TRX + TRC-20 Tokens (TronGrid API) |
+| **SUI** | `sui` | Native SUI + Sui Move Coins (Sui GraphQL API) |
 | **Hyperliquid** | `hl`, `hyperliquid` | Spot Tokens + Perps Margin Equity & Positions |
 | **HyperEVM** | `hyperevm`, `hevm` | Native HYPE Gas + ERC-20 Tokens (USDC, PURR) |
 | **Base** | `base` | Native ETH + Major Tokens (USDC, AERO, WETH) |
@@ -105,7 +111,18 @@ uv run wallet-look --profile main -m 50
 uv run wallet-look --list-profiles
 ```
 
-### 6. JSON Output
+### 6. Inspect TRON and SUI Wallets
+
+Auto-detection works automatically:
+```bash
+# TRON wallet (TRX + TRC-20 tokens like USDT, USDC, USDD)
+uv run wallet-look <TRON_ADDRESS> -m 10
+
+# SUI wallet (SUI + Sui Move coins)
+uv run wallet-look <SUI_ADDRESS>
+```
+
+### 7. JSON Output
 
 ```bash
 uv run wallet-look <EVM_ADDRESS> -c hl --json
@@ -120,4 +137,4 @@ Run the test suite using `pytest` via `uv`:
 ```bash
 uv run pytest
 ```
-*Result: 27 passed.*
+*Result: 35 passed.*
