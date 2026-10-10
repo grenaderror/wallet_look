@@ -221,14 +221,54 @@ def test_infer_from_solana(monkeypatch):
             return mock_resp
 
     monkeypatch.setattr("httpx.Client", MockClient)
+    monkeypatch.setattr(
+        "wallet_look.pricing.PricingClient.get_prices",
+        lambda self, chain, mints: {token_mint: {"symbol": "MYTOK", "price": 30.0}},
+    )
 
     res = infer_from_solana(user_addr)
-    short_mint = f"{token_mint[:4]}...{token_mint[-4:]}"
-    assert short_mint in res
-    inf = res[short_mint]
+    assert "MYTOK" in res
+    inf = res["MYTOK"]
+    assert inf.symbol == "MYTOK"
+    assert inf.contract_address == token_mint
     assert inf.total_bought == 10.0
     assert inf.total_spent_usd == 300.0
     assert inf.avg_price == 30.0  # 300 / 10
+
+
+def test_apply_cost_basis_by_contract_address():
+    mint = "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+    h1 = Holding(
+        symbol="PYTH",
+        name="pyth",
+        balance=1000.0,
+        price_usd=0.10,
+        contract_address=mint,
+        chain="solana",
+    )
+    port = Portfolio(address="Eya9...", chain="solana", holdings=[h1])
+
+    # 1. Match by full mint address
+    apply_cost_basis([port], {mint: 0.08})
+    assert h1.cost_basis == 0.08
+    assert h1.cost_total_usd == 80.0
+    assert h1.pnl_usd == 20.0  # 100 - 80
+
+    # 2. Match by short 4-char mint address (e.g. HZ1J...BCt3)
+    short_4 = f"{mint[:4]}...{mint[-4:]}"
+    h1.cost_basis = None
+    h1.cost_total_usd = None
+    h1.pnl_usd = None
+    apply_cost_basis([port], {short_4: 0.07})
+    assert h1.cost_basis == 0.07
+    assert h1.pnl_usd == 30.0  # 100 - 70
+
+    # 3. Match by short 6-char mint address (e.g. HZ1Jov...BCt3)
+    short_6 = f"{mint[:6]}...{mint[-4:]}"
+    h1.cost_basis = None
+    apply_cost_basis([port], {short_6: 0.06})
+    assert h1.cost_basis == 0.06
+    assert h1.pnl_usd == 40.0
 
 
 def test_infer_cost_basis_all(monkeypatch):

@@ -7,6 +7,9 @@ import httpx
 
 from wallet_look.detector import detect_chain
 from wallet_look.models import Portfolio
+from wallet_look.pricing import PricingClient
+
+WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
 
 STABLECOIN_SYMBOLS = {
     "USDC",
@@ -35,6 +38,7 @@ class InferredCostBasis:
     total_spent_usd: float
     tx_count: int
     chain: str
+    contract_address: Optional[str] = None
     sample_tx: Optional[str] = None
 
 
@@ -70,12 +74,21 @@ def apply_cost_basis(portfolios: List[Portfolio], cost_map: Dict[str, float]) ->
         for h in p.holdings:
             sym = h.symbol.upper()
             base_sym = sym.split("-")[0].strip()
+            contract = (h.contract_address or "").strip().upper()
+            contract_short_4 = f"{contract[:4]}...{contract[-4:]}" if len(contract) > 10 else ""
+            contract_short_6 = f"{contract[:6]}...{contract[-4:]}" if len(contract) > 12 else ""
 
             target_cost = None
             if sym in normalized_map:
                 target_cost = normalized_map[sym]
             elif base_sym in normalized_map:
                 target_cost = normalized_map[base_sym]
+            elif contract and contract in normalized_map:
+                target_cost = normalized_map[contract]
+            elif contract_short_4 and contract_short_4 in normalized_map:
+                target_cost = normalized_map[contract_short_4]
+            elif contract_short_6 and contract_short_6 in normalized_map:
+                target_cost = normalized_map[contract_short_6]
 
             if target_cost is not None and target_cost > 0:
                 h.cost_basis = target_cost
@@ -221,6 +234,7 @@ def infer_from_evm(address: str, timeout: float = 12.0) -> Dict[str, InferredCos
                                 "total_spent": 0.0,
                                 "total_bought": 0.0,
                                 "count": 0,
+                                "contract_address": t.get("tokenInfo", {}).get("address"),
                                 "sample_hash": tx_hash,
                             }
                         grouped[tsym]["total_spent"] += total_spent_usd / len(token_receives)
@@ -237,6 +251,7 @@ def infer_from_evm(address: str, timeout: float = 12.0) -> Dict[str, InferredCos
                         total_spent_usd=round(g["total_spent"], 2),
                         tx_count=g["count"],
                         chain="ethereum",
+                        contract_address=g.get("contract_address"),
                         sample_tx=g["sample_hash"],
                     )
     except Exception:
@@ -327,24 +342,63 @@ def infer_from_solana(address: str, timeout: float = 12.0) -> Dict[str, Inferred
                         if stable_spent > 0:
                             for mint, delta in deltas.items():
                                 if mint not in SOLANA_STABLE_MINTS and delta > 0:
-                                    short_mint = f"{mint[:4]}...{mint[-4:]}"
-                                    if short_mint not in grouped:
-                                        grouped[short_mint] = {
+                                    if mint not in grouped:
+                                        grouped[mint] = {
                                             "total_spent": 0.0,
                                             "total_bought": 0.0,
                                             "count": 0,
                                             "sample_hash": sig,
                                         }
-                                    grouped[short_mint]["total_spent"] += stable_spent
-                                    grouped[short_mint]["total_bought"] += delta
-                                    grouped[short_mint]["count"] += 1
+                                    grouped[mint]["total_spent"] += stable_spent
+                                    grouped[mint]["total_bought"] += delta
+                                    grouped[mint]["count"] += 1
+
+                            # Check if native SOL increased
+                            account_keys = (
+                                tx_data.get("transaction", {}).get("message", {}).get("accountKeys", [])
+                            )
+                            user_idx = None
+                            for idx, ak in enumerate(account_keys):
+                                pubkey = ak.get("pubkey") if isinstance(ak, dict) else ak
+                                if pubkey == clean_addr:
+                                    user_idx = idx
+                                    break
+
+                            if user_idx is not None:
+                                pre_bal = meta.get("preBalances", [])
+                                post_bal = meta.get("postBalances", [])
+                                if len(pre_bal) > user_idx and len(post_bal) > user_idx:
+                                    lamport_diff = post_bal[user_idx] - pre_bal[user_idx]
+                                    if lamport_diff > 1_000_000:  # > 0.001 SOL
+                                        sol_bought = lamport_diff / 1e9
+                                        if WRAPPED_SOL_MINT not in grouped:
+                                            grouped[WRAPPED_SOL_MINT] = {
+                                                "total_spent": 0.0,
+                                                "total_bought": 0.0,
+                                                "count": 0,
+                                                "sample_hash": sig,
+                                            }
+                                        grouped[WRAPPED_SOL_MINT]["total_spent"] += stable_spent
+                                        grouped[WRAPPED_SOL_MINT]["total_bought"] += sol_bought
+                                        grouped[WRAPPED_SOL_MINT]["count"] += 1
                         break
                     except Exception:
                         continue
 
-            for sym, g in grouped.items():
+            pricing = PricingClient(timeout=timeout)
+            mints_to_resolve = [m for m in grouped.keys() if m != WRAPPED_SOL_MINT]
+            prices_map = pricing.get_prices("solana", mints_to_resolve) if mints_to_resolve else {}
+
+            for mint, g in grouped.items():
                 if g["total_bought"] > 0:
                     avg_px = g["total_spent"] / g["total_bought"]
+                    if mint == WRAPPED_SOL_MINT:
+                        sym = "SOL"
+                    elif mint in prices_map and prices_map[mint].get("symbol"):
+                        sym = str(prices_map[mint]["symbol"]).upper()
+                    else:
+                        sym = f"{mint[:4]}...{mint[-4:]}"
+
                     results[sym] = InferredCostBasis(
                         symbol=sym,
                         avg_price=round(avg_px, 6),
@@ -352,6 +406,7 @@ def infer_from_solana(address: str, timeout: float = 12.0) -> Dict[str, Inferred
                         total_spent_usd=round(g["total_spent"], 2),
                         tx_count=g["count"],
                         chain="solana",
+                        contract_address=mint,
                         sample_tx=g["sample_hash"],
                     )
     except Exception:

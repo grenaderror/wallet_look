@@ -313,6 +313,11 @@ def main(args=None) -> int:
                     )
             for sym, inf in inferred.items():
                 active_cost_basis[sym] = inf.avg_price
+                if inf.contract_address:
+                    active_cost_basis[inf.contract_address.upper()] = inf.avg_price
+                    if len(inf.contract_address) > 10:
+                        short_4 = f"{inf.contract_address[:4]}...{inf.contract_address[-4:]}".upper()
+                        active_cost_basis[short_4] = inf.avg_price
 
             target_profile = parsed.profile or parsed.save
             if parsed.save_inferred and target_profile:
