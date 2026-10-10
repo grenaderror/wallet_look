@@ -32,6 +32,8 @@ def get_fetcher(chain: ChainType | str) -> BaseChainFetcher:
         return EvmSidechainFetcher(SIDECHAIN_CONFIGS["bsc"])
     elif normalized in ("avalanche", "avax"):
         return EvmSidechainFetcher(SIDECHAIN_CONFIGS["avalanche"])
+    elif normalized in ("hyperevm", "hevm"):
+        return EvmSidechainFetcher(SIDECHAIN_CONFIGS["hyperevm"])
     else:
         raise ValueError(f"Unsupported blockchain: {chain}")
 

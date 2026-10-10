@@ -126,6 +126,20 @@ SIDECHAIN_CONFIGS: Dict[str, EvmSidechainConfig] = {
             {"symbol": "WAVAX", "name": "Wrapped AVAX", "address": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", "decimals": 18},
         ],
     ),
+    "hyperevm": EvmSidechainConfig(
+        chain_id="hyperevm",
+        display_name="HyperEVM",
+        rpc_urls=["https://rpc.hyperliquid.xyz/evm"],
+        native_symbol="HYPE",
+        native_name="Hyperliquid",
+        defillama_chain="hyperliquid",
+        native_price_chain="coingecko",
+        native_price_address="hyperliquid",
+        common_tokens=[
+            {"symbol": "USDC", "name": "USD Coin", "address": "0xb88339CB7199b77E23DB6E890353E22632Ba630f", "decimals": 6},
+            {"symbol": "PURR", "name": "Purr", "address": "0x9b498C3c8A0b8CD8BA1D9851d40D186F1872b44E", "decimals": 18},
+        ],
+    ),
 }
 
 

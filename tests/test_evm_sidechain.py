@@ -50,4 +50,5 @@ def test_get_fetcher_sidechains():
     assert get_fetcher("polygon").config.chain_id == "polygon"
     assert get_fetcher("bsc").config.chain_id == "bsc"
     assert get_fetcher("avalanche").config.chain_id == "avalanche"
+    assert get_fetcher("hyperevm").config.chain_id == "hyperevm"
     assert get_fetcher("hyperliquid").INFO_URL == "https://api.hyperliquid.xyz/info"

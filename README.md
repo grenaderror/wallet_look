@@ -28,6 +28,7 @@ A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses ac
 | **Solana** | `sol`, `solana` | Native SOL + SPL Tokens + Token-2022 |
 | **Bitcoin** | `btc`, `bitcoin` | Native BTC (Blockstream Explorer) |
 | **Hyperliquid** | `hl`, `hyperliquid` | Spot Tokens + Perps Margin Equity & Positions |
+| **HyperEVM** | `hyperevm`, `hevm` | Native HYPE Gas + ERC-20 Tokens (USDC, PURR) |
 | **Base** | `base` | Native ETH + Major Tokens (USDC, AERO, WETH) |
 | **Arbitrum One** | `arb`, `arbitrum` | Native ETH + Major Tokens (USDC, USDT, ARB, WETH) |
 | **OP Mainnet** | `op`, `optimism` | Native ETH + Major Tokens (USDC, USDT, OP, WETH) |

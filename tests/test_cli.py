@@ -88,8 +88,8 @@ def test_cli_sidechains_scan(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     data = json.loads(captured.out)
-    assert data["wallets_count"] == 8
-    assert data["combined_total_usd"] == 80.0
+    assert data["wallets_count"] == 9
+    assert data["combined_total_usd"] == 90.0
 
 
 def test_cli_profiles(monkeypatch, capsys):

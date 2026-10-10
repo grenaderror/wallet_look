@@ -35,6 +35,8 @@ CHAIN_CHOICES = [
     "avalanche",
     "hl",
     "hyperliquid",
+    "hyperevm",
+    "hevm",
     "all-evm",
 ]
 
@@ -47,6 +49,7 @@ EVM_CHAINS_LIST = [
     "bsc",
     "avalanche",
     "hyperliquid",
+    "hyperevm",
 ]
 
 
