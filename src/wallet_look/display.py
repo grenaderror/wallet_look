@@ -38,6 +38,22 @@ def format_usd(val: float | None) -> str:
     return f"${val:,.2f}"
 
 
+def format_pnl(val: float | None, is_pct: bool = False) -> str:
+    """Format PnL with green for positive, red for negative, and dim for N/A."""
+    if val is None:
+        return "[dim]—[/dim]"
+    if abs(val) < 0.000001:
+        return "$0.00" if not is_pct else "0.0%"
+    color = "green" if val > 0 else "red"
+    prefix = "+" if val > 0 else "-"
+    abs_val = abs(val)
+    if is_pct:
+        return f"[{color}]{prefix}{abs_val:.1f}%[/{color}]"
+    if abs_val < 0.01:
+        return f"[{color}]{prefix}${abs_val:.6f}[/{color}]"
+    return f"[{color}]{prefix}${abs_val:,.2f}[/{color}]"
+
+
 CHAIN_DISPLAY_NAMES = {
     "ethereum": "Ethereum",
     "eth": "Ethereum",
@@ -100,6 +116,8 @@ def _build_holdings_table(
     filtered: List[Holding],
     table_title: str,
 ) -> Table:
+    has_pnl = any(h.cost_basis is not None or h.pnl_usd is not None for h in filtered)
+
     table = Table(
         title=table_title,
         title_style="bold yellow",
@@ -114,6 +132,10 @@ def _build_holdings_table(
     table.add_column("Balance", justify="right", style="cyan")
     table.add_column("Price (USD)", justify="right", style="yellow")
     table.add_column("Value (USD)", justify="right", style="bold green")
+    if has_pnl:
+        table.add_column("Cost Basis", justify="right", style="cyan")
+        table.add_column("PnL (USD)", justify="right")
+        table.add_column("ROI", justify="right")
     table.add_column("Share", justify="right", style="magenta")
     table.add_column("Contract / Mint", style="dim", no_wrap=True)
 
@@ -133,16 +155,21 @@ def _build_holdings_table(
         else:
             short_addr = "Native"
 
-        table.add_row(
+        row = [
             h.symbol,
             h.name[:25],
             token_type,
             format_balance(h.balance),
             format_usd(h.price_usd),
             format_usd(h.value_usd),
-            share_str,
-            short_addr,
-        )
+        ]
+        if has_pnl:
+            cost_str = format_usd(h.cost_basis) if h.cost_basis is not None else "[dim]—[/dim]"
+            pnl_str = format_pnl(h.pnl_usd)
+            roi_str = format_pnl(h.pnl_pct, is_pct=True)
+            row.extend([cost_str, pnl_str, roi_str])
+        row.extend([share_str, short_addr])
+        table.add_row(*row)
     return table
 
 
@@ -152,6 +179,8 @@ def _build_consolidated_table(
     table_title: str,
     show_wallet: bool = False,
 ) -> Table:
+    has_pnl = any(h.cost_basis is not None or h.pnl_usd is not None for _, h in items)
+
     table = Table(
         title=table_title,
         title_style="bold yellow",
@@ -169,6 +198,10 @@ def _build_consolidated_table(
     table.add_column("Balance", justify="right", style="cyan")
     table.add_column("Price (USD)", justify="right", style="yellow")
     table.add_column("Value (USD)", justify="right", style="bold green")
+    if has_pnl:
+        table.add_column("Cost Basis", justify="right", style="cyan")
+        table.add_column("PnL (USD)", justify="right")
+        table.add_column("ROI", justify="right")
     table.add_column("Share", justify="right", style="magenta")
     table.add_column("Contract / Mint", style="dim", no_wrap=True)
 
@@ -199,9 +232,13 @@ def _build_consolidated_table(
             format_balance(h.balance),
             format_usd(h.price_usd),
             format_usd(h.value_usd),
-            share_str,
-            short_addr,
         ])
+        if has_pnl:
+            cost_str = format_usd(h.cost_basis) if h.cost_basis is not None else "[dim]—[/dim]"
+            pnl_str = format_pnl(h.pnl_usd)
+            roi_str = format_pnl(h.pnl_pct, is_pct=True)
+            row.extend([cost_str, pnl_str, roi_str])
+        row.extend([share_str, short_addr])
         table.add_row(*row)
 
     return table
@@ -245,12 +282,28 @@ def render_portfolios(
         all_items.sort(key=lambda item: item[1].balance, reverse=True)
     elif sort_by == "symbol":
         all_items.sort(key=lambda item: item[1].symbol.upper())
+    elif sort_by == "pnl":
+        all_items.sort(
+            key=lambda item: (
+                item[1].pnl_usd is not None,
+                item[1].pnl_usd if item[1].pnl_usd is not None else -1e12,
+            ),
+            reverse=True,
+        )
+
+    costs_list = [p.total_cost_usd for p in portfolios if p.total_cost_usd is not None]
+    combined_cost = sum(costs_list) if costs_list else None
+    pnls_list = [p.total_pnl_usd for p in portfolios if p.total_pnl_usd is not None]
+    combined_pnl = sum(pnls_list) if pnls_list else None
+    has_summary_pnl = combined_cost is not None or combined_pnl is not None
 
     if as_json:
         if single_table:
             data = {
                 "profile": profile_name,
                 "combined_total_usd": round(combined_total, 2),
+                "combined_cost_usd": round(combined_cost, 2) if combined_cost is not None else None,
+                "combined_pnl_usd": round(combined_pnl, 2) if combined_pnl is not None else None,
                 "wallets_count": len(portfolios),
                 "holdings_count": len(all_items),
                 "holdings": [
@@ -272,6 +325,8 @@ def render_portfolios(
             data = {
                 "profile": profile_name,
                 "combined_total_usd": round(combined_total, 2),
+                "combined_cost_usd": round(combined_cost, 2) if combined_cost is not None else None,
+                "combined_pnl_usd": round(combined_pnl, 2) if combined_pnl is not None else None,
                 "wallets_count": len(portfolios),
                 "wallets": [
                     {
@@ -298,6 +353,21 @@ def render_portfolios(
 
     summary.append("Combined Value:    ", style="bold cyan")
     summary.append(f"${combined_total:,.2f} USD\n", style="bold green")
+
+    if has_summary_pnl:
+        if combined_cost is not None and combined_cost > 0:
+            summary.append("Invested Cost:     ", style="bold cyan")
+            summary.append(f"${combined_cost:,.2f} USD\n", style="white")
+        if combined_pnl is not None:
+            roi_val = (combined_pnl / combined_cost * 100) if (combined_cost and combined_cost > 0) else 0.0
+            pnl_style = "bold green" if combined_pnl >= 0 else "bold red"
+            sign = "+" if combined_pnl > 0 else ""
+            summary.append("Total PnL:         ", style="bold cyan")
+            summary.append(f"{sign}${combined_pnl:,.2f} USD ", style=pnl_style)
+            if combined_cost and combined_cost > 0:
+                summary.append(f"({sign}{roi_val:.1f}%)\n", style=pnl_style)
+            else:
+                summary.append("\n")
 
     total_assets = sum(len(p.holdings) for p, _ in portfolio_items)
     displayed_assets = sum(len(filtered) for _, filtered in portfolio_items)

@@ -6,11 +6,23 @@ from typing import List
 from rich.console import Console
 
 from wallet_look.chains import SIDECHAIN_CONFIGS, get_fetcher
+from wallet_look.cost_basis import (
+    apply_cost_basis,
+    infer_cost_basis_all,
+    parse_cost_basis_arg,
+)
 from wallet_look.cross_chain import get_equivalent_chain_and_address
 from wallet_look.detector import detect_chain
 from wallet_look.display import render_portfolios
 from wallet_look.models import ChainType, Portfolio
-from wallet_look.profiles import get_profile, load_profiles, save_profile
+from wallet_look.profiles import (
+    get_profile,
+    get_profile_cost_basis,
+    load_profiles,
+    load_raw_profiles,
+    save_profile,
+    set_profile_cost_basis,
+)
 
 err_console = Console(stderr=True)
 
@@ -133,11 +145,35 @@ def parse_args(args=None) -> argparse.Namespace:
         help="Disable automatic cross-chain equivalent address fallback for single address lookups",
     )
     parser.add_argument(
+        "--cost",
+        "--cost-basis",
+        dest="cost",
+        metavar="COST_SPEC",
+        help="Specify manual cost basis per token (e.g. --cost ETH:2500,SOL:140)",
+    )
+    parser.add_argument(
+        "--set-cost",
+        metavar="COST_SPEC",
+        help="Save cost basis into specified profile (e.g. --profile mywallet --set-cost ETH:2500,SOL:140)",
+    )
+    parser.add_argument(
+        "--infer-cost-basis",
+        "--auto-cost",
+        dest="infer_cost_basis",
+        action="store_true",
+        help="Attempt to automatically infer cost basis from historical stablecoin (USDC, USDT, DAI) transactions",
+    )
+    parser.add_argument(
+        "--save-inferred",
+        action="store_true",
+        help="Save automatically inferred cost basis to the specified profile",
+    )
+    parser.add_argument(
         "-s",
         "--sort",
-        choices=["value", "balance", "symbol"],
+        choices=["value", "balance", "symbol", "pnl"],
         default="value",
-        help="Sort holdings by: value (default), balance, or symbol",
+        help="Sort holdings by: value (default), balance, symbol, or pnl",
     )
     parser.add_argument(
         "--single-table",
@@ -191,13 +227,19 @@ def main(args=None) -> int:
 
     # 1. Handle --list-profiles
     if parsed.list_profiles:
-        profiles = load_profiles()
-        if not profiles:
+        raw_profiles = load_raw_profiles()
+        if not raw_profiles:
             err_console.print("[dim]No saved wallet profiles found. Save one with: wallet-look <addr1> <addr2> --save mywallet[/dim]")
             return 0
         err_console.print("[bold yellow]Saved Wallet Profiles:[/bold yellow]")
-        for name, addrs in profiles.items():
-            err_console.print(f"  [bold cyan]{name}[/bold cyan]: {', '.join(addrs)}")
+        for name, data in raw_profiles.items():
+            addrs = data.get("addresses", [])
+            costs = data.get("cost_basis", {})
+            cost_info = ""
+            if costs:
+                cost_str = ", ".join(f"{k}: ${v:,.2f}" for k, v in costs.items())
+                cost_info = f" [dim](Cost basis: {cost_str})[/dim]"
+            err_console.print(f"  [bold cyan]{name}[/bold cyan]: {', '.join(addrs)}{cost_info}")
         return 0
 
     # 2. Collect target addresses
@@ -232,15 +274,69 @@ def main(args=None) -> int:
         )
         return 1
 
-    # 3. Handle --save profile
+    # 3. Cost basis management
+    active_cost_basis: dict[str, float] = {}
+
+    if parsed.profile:
+        prof_costs = get_profile_cost_basis(parsed.profile)
+        if prof_costs:
+            active_cost_basis.update(prof_costs)
+
+    if parsed.set_cost:
+        parsed_set_costs = parse_cost_basis_arg(parsed.set_cost)
+        if not parsed_set_costs:
+            err_console.print("[bold red]Error:[/bold red] Invalid cost specification. Format: SYMBOL:PRICE (e.g. ETH:2500,SOL:140)")
+            return 1
+        target_profile = parsed.profile or parsed.save
+        if target_profile:
+            set_profile_cost_basis(target_profile, parsed_set_costs)
+            if not parsed.json:
+                cost_str = ", ".join(f"{k}=${v:,.2f}" for k, v in parsed_set_costs.items())
+                err_console.print(f"[bold green]Updated cost basis for profile '{target_profile}': {cost_str}[/bold green]")
+        else:
+            if not parsed.json:
+                err_console.print("[dim yellow]Note: --set-cost provided without --profile/--save; applied to current session only.[/dim yellow]")
+        active_cost_basis.update(parsed_set_costs)
+
+    # 4. Automatic stablecoin transaction inference
+    if parsed.infer_cost_basis:
+        if not parsed.json:
+            err_console.print("[dim]Scanning historical stablecoin transactions (USDC, USDT, DAI) for cost basis...[/dim]")
+        inferred = infer_cost_basis_all(target_addresses)
+        if inferred:
+            if not parsed.json:
+                err_console.print("[bold green]Inferred cost basis from stablecoin transactions:[/bold green]")
+                for sym, inf in inferred.items():
+                    err_console.print(
+                        f"  • [bold cyan]{sym}[/bold cyan]: Avg ${inf.avg_price:,.2f} USD "
+                        f"({inf.total_bought:,.4f} bought for ${inf.total_spent_usd:,.2f} USD across {inf.tx_count} txs)"
+                    )
+            for sym, inf in inferred.items():
+                active_cost_basis[sym] = inf.avg_price
+
+            target_profile = parsed.profile or parsed.save
+            if parsed.save_inferred and target_profile:
+                inferred_map = {sym: inf.avg_price for sym, inf in inferred.items()}
+                set_profile_cost_basis(target_profile, inferred_map)
+                if not parsed.json:
+                    err_console.print(f"[dim green]Saved inferred cost basis to profile '{target_profile}'.[/dim green]")
+        elif not parsed.json:
+            err_console.print("[dim yellow]No recent stablecoin buy transactions detected for provided address(es).[/dim yellow]")
+
+    # Manual CLI override takes highest precedence
+    if parsed.cost:
+        manual_costs = parse_cost_basis_arg(parsed.cost)
+        active_cost_basis.update(manual_costs)
+
+    # 5. Handle --save profile
     if parsed.save:
-        save_profile(parsed.save, target_addresses)
+        save_profile(parsed.save, target_addresses, cost_basis=active_cost_basis if active_cost_basis else None)
         if not parsed.json:
             err_console.print(
                 f"[bold green]Saved profile '{parsed.save}' with {len(target_addresses)} addresses![/bold green]"
             )
 
-    # 4. Fetch portfolios
+    # 6. Fetch portfolios
     portfolios: List[Portfolio] = []
 
     # Case A: Explicit multiple addresses
@@ -301,7 +397,11 @@ def main(args=None) -> int:
                     else:
                         portfolios.append(_fetch_single_chain_safe(eq_chain.value, eq_addr))
 
-    # 5. Render results
+    # Apply cost basis if present
+    if active_cost_basis:
+        apply_cost_basis(portfolios, active_cost_basis)
+
+    # 7. Render results
     render_portfolios(
         portfolios=portfolios,
         min_usd=parsed.min_value,

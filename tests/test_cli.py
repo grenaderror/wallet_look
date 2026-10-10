@@ -222,3 +222,82 @@ def test_cli_single_table_display(monkeypatch, capsys):
     assert code == 0
 
 
+def test_cli_manual_cost_basis(monkeypatch, capsys):
+    mock_port = Portfolio(
+        address="0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        chain="ethereum",
+        holdings=[Holding(symbol="ETH", name="Ethereum", balance=2.0, price_usd=2500.0)],
+    )
+
+    class MockFetcher:
+        def __init__(self, chain):
+            pass
+
+        def fetch_portfolio(self, address):
+            return mock_port
+
+    monkeypatch.setattr("wallet_look.cli.get_fetcher", lambda chain: MockFetcher(chain))
+
+    code = main([
+        "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "--no-sidechains",
+        "--cost",
+        "ETH:1500",
+        "--json",
+    ])
+    assert code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    h = data["holdings"][0]
+    assert h["cost_basis"] == 1500.0
+    assert h["cost_total_usd"] == 3000.0
+    assert h["pnl_usd"] == 2000.0
+    assert h["pnl_pct"] == round(((2500.0 - 1500.0) / 1500.0) * 100, 2)
+
+
+def test_cli_infer_cost_basis(monkeypatch, capsys):
+    from wallet_look.cost_basis import InferredCostBasis
+
+    mock_port = Portfolio(
+        address="0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        chain="ethereum",
+        holdings=[Holding(symbol="ETH", name="Ethereum", balance=1.0, price_usd=3000.0)],
+    )
+
+    class MockFetcher:
+        def __init__(self, chain):
+            pass
+
+        def fetch_portfolio(self, address):
+            return mock_port
+
+    monkeypatch.setattr("wallet_look.cli.get_fetcher", lambda chain: MockFetcher(chain))
+    monkeypatch.setattr(
+        "wallet_look.cli.infer_cost_basis_all",
+        lambda addrs: {
+            "ETH": InferredCostBasis(
+                symbol="ETH",
+                avg_price=2200.0,
+                total_bought=1.0,
+                total_spent_usd=2200.0,
+                tx_count=1,
+                chain="ethereum",
+            )
+        },
+    )
+
+    code = main([
+        "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "--no-sidechains",
+        "--infer-cost-basis",
+        "--json",
+    ])
+    assert code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    h = data["holdings"][0]
+    assert h["cost_basis"] == 2200.0
+    assert h["pnl_usd"] == 800.0
+
+
+

@@ -72,3 +72,5 @@ def test_hyperliquid_fetcher(monkeypatch):
     perp_pos = next(h for h in portfolio.holdings if "ETH-PERP" in h.symbol)
     assert perp_pos.balance == 1.5
     assert perp_pos.value_usd == 3750.0
+    assert perp_pos.cost_basis == 2500.0
+    assert perp_pos.cost_total_usd == 3750.0

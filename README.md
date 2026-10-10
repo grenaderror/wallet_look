@@ -97,22 +97,45 @@ Pass both addresses directly to see a unified portfolio:
 uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> -m 50
 ```
 
-### 5. Save and Load Wallet Profiles
+### 5. Save and Load Wallet Profiles & Cost Basis
 
-Save your addresses once so you don't have to copy-paste them every time:
+Save your addresses once so you don't have to copy-paste them every time, and optionally save purchase cost basis to track profit & loss:
 
 ```bash
 # Save to a named profile (e.g. 'main')
 uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> --save main
 
-# Load anytime
+# Save cost basis into a profile
+uv run wallet-look --profile main --set-cost "ETH:2500,SOL:140"
+
+# Load anytime with PnL automatically calculated
 uv run wallet-look --profile main -m 50
 
-# List saved profiles
+# List saved profiles (including stored cost basis)
 uv run wallet-look --list-profiles
 ```
 
-### 6. Inspect TRON and SUI Wallets
+### 6. PnL & Cost Basis Tracking
+
+Track Profit & Loss (PnL), invested cost, and return-on-investment (ROI %):
+
+```bash
+# Ad-hoc cost basis for single lookups
+uv run wallet-look <ETH_ADDRESS> --cost "ETH:2400,PEPE:0.000012"
+
+# Automatically infer cost basis by analyzing historical stablecoin buys (USDC, USDT, DAI)
+uv run wallet-look <ETH_ADDRESS> --infer-cost-basis
+
+# Infer and automatically save to a named profile
+uv run wallet-look --profile main --infer-cost-basis --save-inferred
+
+# Sort holdings by PnL descending
+uv run wallet-look --profile main -s pnl
+```
+
+> **Note on Hyperliquid**: Active perpetual positions on Hyperliquid automatically display entry price, position value, and unrealized PnL out of the box without requiring manual cost basis entry!
+
+### 7. Inspect TRON and SUI Wallets
 
 Auto-detection works automatically:
 ```bash
@@ -123,13 +146,13 @@ uv run wallet-look <TRON_ADDRESS> -m 10
 uv run wallet-look <SUI_ADDRESS>
 ```
 
-### 7. JSON Output
+### 8. JSON Output
 
 ```bash
 uv run wallet-look <EVM_ADDRESS> -c hl --json
 ```
 
-### 8. Single Table View (Consolidate All Holdings)
+### 9. Single Table View (Consolidate All Holdings)
 
 Consolidate holdings across multiple chains and wallets into a single combined table:
 

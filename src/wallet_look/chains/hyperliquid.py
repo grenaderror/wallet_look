@@ -150,6 +150,27 @@ class HyperliquidFetcher(BaseChainFetcher):
 
                 unit_px = (pos_val / abs(szi)) if szi != 0 else None
 
+                entry_px = None
+                if pos.get("entryPx") is not None:
+                    try:
+                        entry_px = float(pos.get("entryPx"))
+                    except (ValueError, TypeError):
+                        pass
+
+                unrealized_pnl = None
+                if pos.get("unrealizedPnl") is not None:
+                    try:
+                        unrealized_pnl = float(pos.get("unrealizedPnl"))
+                    except (ValueError, TypeError):
+                        pass
+
+                roe_pct = None
+                if pos.get("returnOnEquity") is not None:
+                    try:
+                        roe_pct = round(float(pos.get("returnOnEquity")) * 100, 2)
+                    except (ValueError, TypeError):
+                        pass
+
                 holdings.append(
                     Holding(
                         symbol=f"{coin}-PERP ({side})",
@@ -161,6 +182,9 @@ class HyperliquidFetcher(BaseChainFetcher):
                         value_usd=pos_val,
                         is_native=False,
                         chain="hyperliquid",
+                        cost_basis=entry_px,
+                        pnl_usd=unrealized_pnl,
+                        pnl_pct=roe_pct,
                     )
                 )
 

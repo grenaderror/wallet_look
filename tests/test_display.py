@@ -133,3 +133,34 @@ def test_render_portfolio_backwards_compatible_delegation(capsys):
     data = json.loads(captured.out)
     assert data["combined_total_usd"] == 3000.0
     assert data["holdings_count"] == 1
+
+
+def test_format_pnl():
+    from wallet_look.display import format_pnl
+
+    assert format_pnl(None) == "[dim]—[/dim]"
+    assert format_pnl(0.0) == "$0.00"
+    assert format_pnl(0.0, is_pct=True) == "0.0%"
+    assert "[green]+$500.00[/green]" in format_pnl(500.0)
+    assert "[red]-$150.00[/red]" in format_pnl(-150.0)
+    assert "[green]+25.0%[/green]" in format_pnl(25.0, is_pct=True)
+    assert "[red]-10.5%[/red]" in format_pnl(-10.5, is_pct=True)
+
+
+def test_build_holdings_table_with_pnl():
+    from wallet_look.display import _build_holdings_table
+
+    p = Portfolio(address="0xabc", chain="ethereum")
+    h = Holding(
+        symbol="ETH",
+        name="Ethereum",
+        balance=1.0,
+        price_usd=3000.0,
+        cost_basis=2000.0,
+    )
+    table = _build_holdings_table(p, [h], "Test Table")
+    col_names = [c.header for c in table.columns]
+    assert "Cost Basis" in col_names
+    assert "PnL (USD)" in col_names
+    assert "ROI" in col_names
+
