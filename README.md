@@ -4,7 +4,10 @@ A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses ac
 
 ## Features
 
-- **Multi-Chain Support**: Auto-detects Ethereum (0x...), Solana (Base58), and Bitcoin (Legacy/SegWit/Taproot) addresses, or specify with `--chain`.
+- **Multi-Chain Support**: Auto-detects Ethereum (`0x...`), Solana (`Base58`), and Bitcoin (`Legacy`/`SegWit`/`Taproot`) addresses, or specify with `--chain`.
+- **Bidirectional Cross-Chain Equivalents (ETH <-> SOL)**:
+  - **SOL to ETH**: Automatically derives the equivalent Ethereum address (via standard SVM-to-EVM / Neon EVM Keccak-256 mapping or left-padded 32-byte representation) and checks its Ethereum portfolio.
+  - **ETH to SOL**: Checks ENS records for configured Solana wallets or derives the standard 32-byte SVM foreign address representation, fetching both chains.
 - **Full Portfolio Inspection**:
   - **Ethereum**: Native ETH balance + all ERC-20 token holdings via Ethplorer with public RPC fallback.
   - **Solana**: Native SOL balance + SPL & Token-2022 tokens via public Solana RPC.
@@ -38,17 +41,25 @@ uv pip install -e .
 
 ## Usage
 
-### Auto-Detect Blockchain
+### Auto-Detect Blockchain & Fetch Cross-Chain Equivalents
 
 ```bash
-# Ethereum wallet (e.g. Vitalik's address)
-uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+# Solana wallet -> Fetches SOL holdings + equivalent ETH holdings
+uv run wallet-look 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM -m 100
 
-# Solana wallet
-uv run wallet-look 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
+# Ethereum wallet -> Fetches ETH holdings + equivalent SOL holdings
+uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 -m 50
 
 # Bitcoin address
 uv run wallet-look 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+```
+
+### Disable Equivalent Cross-Chain Lookup
+
+If you only want the primary chain's holdings without checking the equivalent address:
+
+```bash
+uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --no-equivalent
 ```
 
 ### Filtering Low-Value Dust / Airdrops
@@ -65,15 +76,15 @@ uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 -m 50
 Export clean JSON to pipe into `jq` or another tool:
 
 ```bash
-uv run wallet-look 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa --json
+uv run wallet-look 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM --json
 ```
 
 ### CLI Options
 
 ```text
 usage: wallet-look [-h] [-c {auto,eth,ethereum,sol,solana,btc,bitcoin}]
-                   [-m MIN_VALUE] [--show-zero] [-s {value,balance,symbol}]
-                   [--json]
+                   [-m MIN_VALUE] [--show-zero] [--no-equivalent]
+                   [-s {value,balance,symbol}] [--json]
                    address
 
 positional arguments:
@@ -85,6 +96,7 @@ options:
   -c, --chain           Target blockchain (default: auto-detect)
   -m, --min-value       Minimum USD value to display (default: 0.0)
   --show-zero           Include holdings with zero balance (default: hidden)
+  --no-equivalent       Disable automatic cross-chain equivalent address lookup
   -s, --sort            Sort holdings by: value (default), balance, or symbol
   --json                Output raw JSON instead of formatted terminal table
 ```
