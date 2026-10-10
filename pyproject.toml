@@ -1,0 +1,27 @@
+[project]
+name = "wallet-look"
+version = "0.1.0"
+description = "Multi-chain cryptocurrency wallet portfolio tracker (ETH, SOL, BTC) with live USD pricing"
+readme = "README.md"
+authors = [
+    { name = "Elijah", email = "28245535+grenaderror@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.14.0",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+wallet-look = "wallet_look:main"
+
+[build-system]
+requires = ["uv_build>=0.12.16,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-mock>=3.16.0",
+]
