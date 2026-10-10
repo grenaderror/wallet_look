@@ -110,15 +110,16 @@ def render_portfolios(
         return
 
     combined_total = sum(p.total_usd for p in portfolios)
-    filtered_map = {
-        p.address: p.filter_and_sort(min_usd=min_usd, hide_zero=hide_zero, sort_by=sort_by)
+    portfolio_items = [
+        (p, p.filter_and_sort(min_usd=min_usd, hide_zero=hide_zero, sort_by=sort_by))
         for p in portfolios
-    }
+    ]
 
     if as_json:
         if len(portfolios) == 1:
-            data = portfolios[0].to_dict()
-            data["holdings"] = [h.to_dict() for h in filtered_map[portfolios[0].address]]
+            p, filtered = portfolio_items[0]
+            data = p.to_dict()
+            data["holdings"] = [h.to_dict() for h in filtered]
             print(json.dumps(data, indent=2))
         else:
             data = {
@@ -128,9 +129,9 @@ def render_portfolios(
                 "wallets": [
                     {
                         **p.to_dict(),
-                        "holdings": [h.to_dict() for h in filtered_map[p.address]],
+                        "holdings": [h.to_dict() for h in filtered],
                     }
-                    for p in portfolios
+                    for p, filtered in portfolio_items
                 ],
             }
             print(json.dumps(data, indent=2))
@@ -142,16 +143,17 @@ def render_portfolios(
         summary.append("Profile:           ", style="bold cyan")
         summary.append(f"{profile_name}\n", style="bold yellow")
 
-    for i, p in enumerate(portfolios, 1):
+    for i, (p, filtered) in enumerate(portfolio_items, 1):
         summary.append(f"Wallet {i} ({p.chain.upper()}): ", style="bold cyan")
-        summary.append(f"{p.address} ", style="white")
+        short_addr = f"{p.address[:8]}...{p.address[-6:]}" if len(p.address) > 20 else p.address
+        summary.append(f"{short_addr} ", style="white")
         summary.append(f"(${p.total_usd:,.2f} USD)\n", style="dim green")
 
     summary.append("Combined Value:    ", style="bold cyan")
     summary.append(f"${combined_total:,.2f} USD\n", style="bold green")
 
-    total_assets = sum(len(p.holdings) for p in portfolios)
-    displayed_assets = sum(len(filtered_map[p.address]) for p in portfolios)
+    total_assets = sum(len(p.holdings) for p, _ in portfolio_items)
+    displayed_assets = sum(len(filtered) for _, filtered in portfolio_items)
     summary.append("Assets Displayed:  ", style="bold cyan")
     summary.append(f"{displayed_assets} / {total_assets} total assets", style="dim")
 
@@ -160,8 +162,7 @@ def render_portfolios(
     console.print(Panel(summary, title=title, border_style="cyan", expand=False))
 
     # Render each wallet table
-    for p in portfolios:
-        filtered = filtered_map[p.address]
+    for p, filtered in portfolio_items:
         if filtered:
             console.print(
                 _build_holdings_table(
@@ -171,9 +172,9 @@ def render_portfolios(
                 )
             )
             console.print()
-        else:
+        elif p.total_usd > 0 or not hide_zero:
             console.print(
-                f"[dim]No active {p.chain.upper()} holdings found matching filters on {p.address}.[/dim]\n"
+                f"[dim]No active {p.chain.upper()} holdings found matching filter >= ${min_usd:,.2f} USD ({p.address}).[/dim]\n"
             )
 
 

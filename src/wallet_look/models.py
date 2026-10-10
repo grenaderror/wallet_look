@@ -9,6 +9,13 @@ class ChainType(str, Enum):
     ETHEREUM = "ethereum"
     SOLANA = "solana"
     BITCOIN = "bitcoin"
+    ARBITRUM = "arbitrum"
+    BASE = "base"
+    OPTIMISM = "optimism"
+    POLYGON = "polygon"
+    BSC = "bsc"
+    AVALANCHE = "avalanche"
+    HYPERLIQUID = "hyperliquid"
 
 
 @dataclass

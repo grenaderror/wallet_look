@@ -51,6 +51,7 @@ def test_cli_multiple_addresses(monkeypatch, capsys):
     code = main([
         "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
         "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "--no-sidechains",
         "--json",
     ])
     assert code == 0
@@ -60,6 +61,35 @@ def test_cli_multiple_addresses(monkeypatch, capsys):
     assert data["combined_total_usd"] == 6500.0
     assert data["wallets_count"] == 2
     assert len(data["wallets"]) == 2
+
+
+def test_cli_sidechains_scan(monkeypatch, capsys):
+    mock_port = Portfolio(
+        address="0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        chain="ethereum",
+        holdings=[Holding(symbol="ETH", name="Ethereum", balance=1.0, price_usd=2000.0)],
+    )
+
+    class MockFetcher:
+        def __init__(self, chain):
+            self.chain = chain
+
+        def fetch_portfolio(self, address):
+            return Portfolio(
+                address=address,
+                chain=str(self.chain),
+                holdings=[Holding(symbol="TEST", name="Test", balance=1.0, price_usd=10.0)],
+            )
+
+    monkeypatch.setattr("wallet_look.cli.get_fetcher", lambda chain: MockFetcher(chain))
+
+    code = main(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "--chain", "all-evm", "--json"])
+    assert code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["wallets_count"] == 8
+    assert data["combined_total_usd"] == 80.0
 
 
 def test_cli_profiles(monkeypatch, capsys):

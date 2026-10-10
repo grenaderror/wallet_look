@@ -1,40 +1,45 @@
 # wallet-look
 
-A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses across **Ethereum (ETH & ERC-20)**, **Solana (SOL & SPL)**, and **Bitcoin (BTC)**, displaying full asset holdings with live USD valuations.
+A multi-chain cryptocurrency wallet portfolio tracker that inspects addresses across **Ethereum**, **Solana**, **Bitcoin**, **EVM Sidechains/L2s** (Arbitrum, Base, Optimism, Polygon, BSC, Avalanche), and **Hyperliquid**, displaying full asset holdings with live USD valuations.
 
 ## Features
 
 - **Multi-Chain Portfolio Tracking**: Inspect multiple wallet addresses simultaneously (e.g. your Solana and Ethereum addresses from Phantom, Backpack, or Ledger).
+- **EVM Sidechains & L2s Auto-Scan**: Concurrently queries **Arbitrum**, **Base**, **Optimism**, **Polygon**, **BNB Smart Chain (BSC)**, and **Avalanche C-Chain** for native and ERC-20 token holdings.
+- **Hyperliquid L1**: Fetches spot token balances (USDC, HYPE, PURR, etc.) and perpetuals account margin equity & open positions via Hyperliquid's official Info API.
 - **Wallet Profiles**: Save your addresses into named profiles (`--save <name>`) and load them anytime (`--profile <name>`).
 - **Full Portfolio Inspection**:
   - **Ethereum**: Native ETH balance + all ERC-20 token holdings via Ethplorer with public RPC fallback.
   - **Solana**: Native SOL balance + SPL & Token-2022 tokens via public Solana RPC.
   - **Bitcoin**: Native BTC balance via Blockstream public explorer.
 - **Cross-Chain Derivations**: For single address lookups, automatically inspects SVM/EVM equivalent addresses (Neon EVM Keccak-256 or ENS records).
-- **Live USD Pricing**: Real-time USD rates and asset valuations fetched dynamically via DefiLlama and DexScreener (no paid API keys required).
+- **Live USD Pricing**: Real-time USD rates and asset valuations fetched dynamically via DefiLlama, DexScreener, and Hyperliquid (no paid API keys required).
 - **Rich Terminal UI**: Beautiful formatted tables with balance formatting, USD values, portfolio share %, and token contracts.
 - **JSON Output**: `--json` flag for scripting, pipelines, or automation.
 - **Filtering & Sorting**: Filter out low-value dust (`-m / --min-value`), hide zero balances, or sort by value, balance, or symbol.
 
 ---
 
-## Why Phantom/Wallet App ETH & SOL Addresses Differ
+## Supported Blockchains & Networks
 
-Multi-chain wallets like Phantom, Backpack, and Solflare derive their accounts from the **same secret seed phrase** (mnemonic), but use distinct cryptographic curves and derivation paths:
-- **Ethereum**: `m/44'/60'/0'/0/0` via **secp256k1**
-- **Solana**: `m/44'/501'/0'/0'` via **ed25519**
-
-Because public-key cryptography and key derivation functions are one-way, **a public Solana address cannot mathematically derive the wallet's Ethereum address without the secret seed phrase**.
-
-To track your wallet across both chains, you can pass both addresses together or save them to a profile.
+| Network | Identifiers / Flags | Features Supported |
+| :--- | :--- | :--- |
+| **Ethereum** | `eth`, `ethereum` | Native ETH + All ERC-20 Tokens (Ethplorer + RPC) |
+| **Solana** | `sol`, `solana` | Native SOL + SPL Tokens + Token-2022 |
+| **Bitcoin** | `btc`, `bitcoin` | Native BTC (Blockstream Explorer) |
+| **Hyperliquid** | `hl`, `hyperliquid` | Spot Tokens + Perps Margin Equity & Positions |
+| **Base** | `base` | Native ETH + Major Tokens (USDC, AERO, WETH) |
+| **Arbitrum One** | `arb`, `arbitrum` | Native ETH + Major Tokens (USDC, USDT, ARB, WETH) |
+| **OP Mainnet** | `op`, `optimism` | Native ETH + Major Tokens (USDC, USDT, OP, WETH) |
+| **Polygon PoS** | `polygon`, `matic` | Native POL + Major Tokens (USDC, USDT, WETH) |
+| **BNB Smart Chain**| `bsc`, `bnb` | Native BNB + Major BEP-20 Tokens (USDT, USDC, WBNB) |
+| **Avalanche** | `avax`, `avalanche` | Native AVAX + Major Tokens (USDC, USDT, WAVAX) |
 
 ---
 
 ## Installation & Setup with UV
 
 This project is built using [`uv`](https://github.com/astral-sh/uv).
-
-### 1. Create Virtual Environment & Install Dependencies
 
 ```bash
 # Create venv and sync dependencies
@@ -52,75 +57,57 @@ uv pip install -e .
 
 ## Usage
 
-### 1. Multi-Chain Wallet Lookups (SOL + ETH)
+### 1. Auto-Scan Ethereum + EVM Sidechains + Hyperliquid
+
+When given an Ethereum (`0x...`) address, `wallet-look` automatically scans Ethereum, sidechains, and Hyperliquid concurrently:
+
+```bash
+uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 -m 100
+```
+
+### 2. Inspect Hyperliquid Directly
+
+```bash
+uv run wallet-look <EVM_ADDRESS> -c hyperliquid
+# or short alias:
+uv run wallet-look <EVM_ADDRESS> -c hl
+```
+
+### 3. Inspect a Specific EVM Sidechain
+
+```bash
+uv run wallet-look <EVM_ADDRESS> -c base
+uv run wallet-look <EVM_ADDRESS> -c arb
+uv run wallet-look <EVM_ADDRESS> -c polygon
+```
+
+### 4. Multi-Chain Wallet Lookups (SOL + ETH)
 
 Pass both addresses directly to see a unified portfolio:
 
 ```bash
-uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> -m 100
+uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> -m 50
 ```
 
-### 2. Save and Load Wallet Profiles
+### 5. Save and Load Wallet Profiles
 
 Save your addresses once so you don't have to copy-paste them every time:
 
 ```bash
-# Save to a named profile (e.g. 'phantom')
-uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> --save phantom
+# Save to a named profile (e.g. 'main')
+uv run wallet-look <SOL_ADDRESS> <ETH_ADDRESS> --save main
 
 # Load anytime
-uv run wallet-look --profile phantom -m 50
+uv run wallet-look --profile main -m 50
 
 # List saved profiles
 uv run wallet-look --list-profiles
 ```
 
-### 3. Single Address Auto-Detection
+### 6. JSON Output
 
 ```bash
-# Solana wallet
-uv run wallet-look 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM -m 100
-
-# Ethereum wallet
-uv run wallet-look 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 -m 50
-
-# Bitcoin address
-uv run wallet-look 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
-```
-
-### 4. JSON Output
-
-```bash
-uv run wallet-look --profile phantom --json
-```
-
-### CLI Options
-
-```text
-usage: wallet-look [-h] [--eth ETH] [--sol SOL] [--btc BTC]
-                   [-p PROFILE] [--save PROFILE_NAME] [--list-profiles]
-                   [-c {auto,eth,ethereum,sol,solana,btc,bitcoin}]
-                   [-m MIN_VALUE] [--show-zero] [--no-equivalent]
-                   [-s {value,balance,symbol}] [--json]
-                   [addresses ...]
-
-positional arguments:
-  addresses             One or more wallet addresses (e.g. SOL address and ETH address)
-
-options:
-  -h, --help            show this help message and exit
-  --eth ETH             Explicit Ethereum address to include
-  --sol SOL             Explicit Solana address to include
-  --btc BTC             Explicit Bitcoin address to include
-  -p, --profile         Load saved wallet profile by name (e.g. --profile phantom)
-  --save PROFILE_NAME   Save provided addresses to a named profile
-  --list-profiles       List all saved wallet profiles and exit
-  -c, --chain           Target blockchain (default: auto-detect)
-  -m, --min-value       Minimum USD value to display (default: 0.0)
-  --show-zero           Include holdings with zero balance (default: hidden)
-  --no-equivalent       Disable automatic cross-chain equivalent address fallback
-  -s, --sort            Sort holdings by: value (default), balance, or symbol
-  --json                Output raw JSON instead of formatted terminal table
+uv run wallet-look <EVM_ADDRESS> -c hl --json
 ```
 
 ---
@@ -132,3 +119,4 @@ Run the test suite using `pytest` via `uv`:
 ```bash
 uv run pytest
 ```
+*Result: 27 passed.*
