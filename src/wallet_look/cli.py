@@ -205,7 +205,7 @@ def _fetch_evm_multichain(address: str, as_json: bool = False, show_zero: bool =
             f"[dim]Scanning Ethereum, sidechains (Arbitrum, Base, OP, Polygon, BSC, Avalanche), and Hyperliquid for {address}...[/dim]"
         )
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=len(EVM_CHAINS_LIST)) as executor:
         portfolios = list(
             executor.map(lambda ch: _fetch_single_chain_safe(ch, address), EVM_CHAINS_LIST)
         )
@@ -220,6 +220,27 @@ def _fetch_evm_multichain(address: str, as_json: bool = False, show_zero: bool =
             results.append(p)
 
     return results
+
+
+def _fetch_one_address(
+    addr: str,
+    chain_arg: str = "auto",
+    no_sidechains: bool = False,
+    as_json: bool = False,
+    show_zero: bool = False,
+) -> List[Portfolio]:
+    """Fetch all portfolios for a single address (EVM multichain or single chain)."""
+    try:
+        ch = detect_chain(addr)
+    except ValueError as err:
+        err_console.print(f"[dim yellow]Warning skipping invalid address: {err}[/dim yellow]")
+        return []
+
+    if ch == ChainType.ETHEREUM and not no_sidechains and chain_arg in ("auto", "all-evm"):
+        return _fetch_evm_multichain(addr, as_json=as_json, show_zero=show_zero)
+    if not as_json:
+        err_console.print(f"[dim]Fetching holdings for {addr} on {ch.value.capitalize()}...[/dim]")
+    return [_fetch_single_chain_safe(ch.value, addr)]
 
 
 def main(args=None) -> int:
@@ -344,22 +365,24 @@ def main(args=None) -> int:
     # 6. Fetch portfolios
     portfolios: List[Portfolio] = []
 
-    # Case A: Explicit multiple addresses
+    # Case A: Explicit multiple addresses (fetched concurrently, order-preserving)
     if len(target_addresses) > 1:
-        for addr in target_addresses:
-            try:
-                ch = detect_chain(addr)
-            except ValueError as err:
-                err_console.print(f"[dim yellow]Warning skipping invalid address: {err}[/dim yellow]")
-                continue
-
-            if ch == ChainType.ETHEREUM and not parsed.no_sidechains and parsed.chain in ("auto", "all-evm"):
-                evm_ports = _fetch_evm_multichain(addr, as_json=parsed.json, show_zero=parsed.show_zero)
-                portfolios.extend(evm_ports)
-            else:
-                if not parsed.json:
-                    err_console.print(f"[dim]Fetching holdings for {addr} on {ch.value.capitalize()}...[/dim]")
-                portfolios.append(_fetch_single_chain_safe(ch.value, addr))
+        max_workers = min(len(target_addresses), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            grouped = list(
+                executor.map(
+                    lambda a: _fetch_one_address(
+                        a,
+                        chain_arg=parsed.chain,
+                        no_sidechains=parsed.no_sidechains,
+                        as_json=parsed.json,
+                        show_zero=parsed.show_zero,
+                    ),
+                    target_addresses,
+                )
+            )
+        for group in grouped:
+            portfolios.extend(group)
 
     # Case B: Single address
     else:
