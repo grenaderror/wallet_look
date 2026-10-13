@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import httpx
@@ -260,6 +261,34 @@ def infer_from_evm(address: str, timeout: float = 12.0) -> Dict[str, InferredCos
     return results
 
 
+def _fetch_solana_tx(sig: str, rpc_urls: List[str], timeout: float) -> Optional[dict]:
+    """Fetch one Solana transaction, trying each RPC URL in order."""
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            for rpc in rpc_urls:
+                try:
+                    tx_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTransaction",
+                        "params": [
+                            sig,
+                            {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
+                        ],
+                    }
+                    r = client.post(rpc, json=tx_payload, headers={"User-Agent": "wallet-look/0.1"})
+                    if r.status_code != 200:
+                        continue
+                    tx_data = r.json().get("result")
+                    if tx_data:
+                        return tx_data
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return None
+
+
 def infer_from_solana(address: str, timeout: float = 12.0) -> Dict[str, InferredCostBasis]:
     """Infer cost basis from Solana transactions where stablecoin balances decreased and tokens increased."""
     results: Dict[str, InferredCostBasis] = {}
@@ -267,123 +296,115 @@ def infer_from_solana(address: str, timeout: float = 12.0) -> Dict[str, Inferred
     rpc_urls = ["https://api.mainnet-beta.solana.com", "https://solana-rpc.publicnode.com"]
 
     try:
-        with httpx.Client(timeout=timeout) as client:
-            # 1. Fetch recent transaction signatures
-            sigs: List[str] = []
-            for rpc in rpc_urls:
-                try:
-                    payload = {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "getSignaturesForAddress",
-                        "params": [clean_addr, {"limit": 15}],
-                    }
-                    r = client.post(rpc, json=payload, headers={"User-Agent": "wallet-look/0.1"})
-                    if r.status_code == 200:
-                        data = r.json().get("result")
-                        if isinstance(data, list):
-                            sigs = [item["signature"] for item in data if "signature" in item]
-                            break
-                except Exception:
-                    continue
-
-            if not sigs:
-                return {}
-
-            grouped: Dict[str, Dict[str, Any]] = {}
-
-            # 2. Inspect transactions
-            for sig in sigs[:10]:
+        # 1. Fetch recent transaction signatures (single cheap call, kept serial)
+        sigs: List[str] = []
+        try:
+            with httpx.Client(timeout=timeout) as client:
                 for rpc in rpc_urls:
                     try:
-                        tx_payload = {
+                        payload = {
                             "jsonrpc": "2.0",
                             "id": 1,
-                            "method": "getTransaction",
-                            "params": [
-                                sig,
-                                {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
-                            ],
+                            "method": "getSignaturesForAddress",
+                            "params": [clean_addr, {"limit": 15}],
                         }
-                        r = client.post(rpc, json=tx_payload, headers={"User-Agent": "wallet-look/0.1"})
-                        if r.status_code != 200:
-                            continue
-                        tx_data = r.json().get("result")
-                        if not tx_data:
-                            continue
-
-                        meta = tx_data.get("meta", {})
-                        pre_token = meta.get("preTokenBalances", [])
-                        post_token = meta.get("postTokenBalances", [])
-
-                        # Calculate balance delta for target owner
-                        deltas: Dict[str, float] = {}
-                        for post in post_token:
-                            if post.get("owner") == clean_addr:
-                                mint = post.get("mint", "")
-                                amt = float(post.get("uiTokenAmount", {}).get("uiAmount", 0.0) or 0.0)
-                                deltas[mint] = amt
-
-                        for pre in pre_token:
-                            if pre.get("owner") == clean_addr:
-                                mint = pre.get("mint", "")
-                                amt = float(pre.get("uiTokenAmount", {}).get("uiAmount", 0.0) or 0.0)
-                                if mint in deltas:
-                                    deltas[mint] -= amt
-                                else:
-                                    deltas[mint] = -amt
-
-                        # Check if stablecoin decreased (spent) and other token increased (bought)
-                        stable_spent = 0.0
-                        for mint, delta in list(deltas.items()):
-                            if mint in SOLANA_STABLE_MINTS and delta < 0:
-                                stable_spent += abs(delta)
-
-                        if stable_spent > 0:
-                            for mint, delta in deltas.items():
-                                if mint not in SOLANA_STABLE_MINTS and delta > 0:
-                                    if mint not in grouped:
-                                        grouped[mint] = {
-                                            "total_spent": 0.0,
-                                            "total_bought": 0.0,
-                                            "count": 0,
-                                            "sample_hash": sig,
-                                        }
-                                    grouped[mint]["total_spent"] += stable_spent
-                                    grouped[mint]["total_bought"] += delta
-                                    grouped[mint]["count"] += 1
-
-                            # Check if native SOL increased
-                            account_keys = (
-                                tx_data.get("transaction", {}).get("message", {}).get("accountKeys", [])
-                            )
-                            user_idx = None
-                            for idx, ak in enumerate(account_keys):
-                                pubkey = ak.get("pubkey") if isinstance(ak, dict) else ak
-                                if pubkey == clean_addr:
-                                    user_idx = idx
-                                    break
-
-                            if user_idx is not None:
-                                pre_bal = meta.get("preBalances", [])
-                                post_bal = meta.get("postBalances", [])
-                                if len(pre_bal) > user_idx and len(post_bal) > user_idx:
-                                    lamport_diff = post_bal[user_idx] - pre_bal[user_idx]
-                                    if lamport_diff > 1_000_000:  # > 0.001 SOL
-                                        sol_bought = lamport_diff / 1e9
-                                        if WRAPPED_SOL_MINT not in grouped:
-                                            grouped[WRAPPED_SOL_MINT] = {
-                                                "total_spent": 0.0,
-                                                "total_bought": 0.0,
-                                                "count": 0,
-                                                "sample_hash": sig,
-                                            }
-                                        grouped[WRAPPED_SOL_MINT]["total_spent"] += stable_spent
-                                        grouped[WRAPPED_SOL_MINT]["total_bought"] += sol_bought
-                                        grouped[WRAPPED_SOL_MINT]["count"] += 1
-                        break
+                        r = client.post(rpc, json=payload, headers={"User-Agent": "wallet-look/0.1"})
+                        if r.status_code == 200:
+                            data = r.json().get("result")
+                            if isinstance(data, list):
+                                sigs = [item["signature"] for item in data if "signature" in item]
+                                break
                     except Exception:
                         continue
+        except Exception:
+            return {}
+
+        if not sigs:
+            return {}
+
+        grouped: Dict[str, Dict[str, Any]] = {}
+
+        # 2. Fetch transactions in parallel (each worker owns its httpx.Client)
+        sigs_to_check = sigs[:10]
+        max_workers = min(len(sigs_to_check), 10)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            tx_datas = list(
+                executor.map(lambda sig: _fetch_solana_tx(sig, rpc_urls, timeout), sigs_to_check)
+            )
+
+        # 3. Process fetched transactions serially (pure CPU merging)
+        for sig, tx_data in zip(sigs_to_check, tx_datas):
+            if not tx_data:
+                continue
+            meta = tx_data.get("meta", {})
+            pre_token = meta.get("preTokenBalances", [])
+            post_token = meta.get("postTokenBalances", [])
+
+            # Calculate balance delta for target owner
+            deltas: Dict[str, float] = {}
+            for post in post_token:
+                if post.get("owner") == clean_addr:
+                    mint = post.get("mint", "")
+                    amt = float(post.get("uiTokenAmount", {}).get("uiAmount", 0.0) or 0.0)
+                    deltas[mint] = amt
+
+            for pre in pre_token:
+                if pre.get("owner") == clean_addr:
+                    mint = pre.get("mint", "")
+                    amt = float(pre.get("uiTokenAmount", {}).get("uiAmount", 0.0) or 0.0)
+                    if mint in deltas:
+                        deltas[mint] -= amt
+                    else:
+                        deltas[mint] = -amt
+
+            # Check if stablecoin decreased (spent) and other token increased (bought)
+            stable_spent = 0.0
+            for mint, delta in list(deltas.items()):
+                if mint in SOLANA_STABLE_MINTS and delta < 0:
+                    stable_spent += abs(delta)
+
+            if stable_spent > 0:
+                for mint, delta in deltas.items():
+                    if mint not in SOLANA_STABLE_MINTS and delta > 0:
+                        if mint not in grouped:
+                            grouped[mint] = {
+                                "total_spent": 0.0,
+                                "total_bought": 0.0,
+                                "count": 0,
+                                "sample_hash": sig,
+                            }
+                        grouped[mint]["total_spent"] += stable_spent
+                        grouped[mint]["total_bought"] += delta
+                        grouped[mint]["count"] += 1
+
+                # Check if native SOL increased
+                account_keys = (
+                    tx_data.get("transaction", {}).get("message", {}).get("accountKeys", [])
+                )
+                user_idx = None
+                for idx, ak in enumerate(account_keys):
+                    pubkey = ak.get("pubkey") if isinstance(ak, dict) else ak
+                    if pubkey == clean_addr:
+                        user_idx = idx
+                        break
+
+                if user_idx is not None:
+                    pre_bal = meta.get("preBalances", [])
+                    post_bal = meta.get("postBalances", [])
+                    if len(pre_bal) > user_idx and len(post_bal) > user_idx:
+                        lamport_diff = post_bal[user_idx] - pre_bal[user_idx]
+                        if lamport_diff > 1_000_000:  # > 0.001 SOL
+                            sol_bought = lamport_diff / 1e9
+                            if WRAPPED_SOL_MINT not in grouped:
+                                grouped[WRAPPED_SOL_MINT] = {
+                                    "total_spent": 0.0,
+                                    "total_bought": 0.0,
+                                    "count": 0,
+                                    "sample_hash": sig,
+                                }
+                            grouped[WRAPPED_SOL_MINT]["total_spent"] += stable_spent
+                            grouped[WRAPPED_SOL_MINT]["total_bought"] += sol_bought
+                            grouped[WRAPPED_SOL_MINT]["count"] += 1
 
             pricing = PricingClient(timeout=timeout)
             mints_to_resolve = [m for m in grouped.keys() if m != WRAPPED_SOL_MINT]
@@ -415,27 +436,86 @@ def infer_from_solana(address: str, timeout: float = 12.0) -> Dict[str, Inferred
     return results
 
 
+_EVM_LIKE_CHAINS = frozenset({
+    "ethereum",
+    "arbitrum",
+    "base",
+    "optimism",
+    "polygon",
+    "bsc",
+    "avalanche",
+    "hyperliquid",
+    "hyperevm",
+})
+
+
 def infer_cost_basis_all(addresses: List[str], timeout: float = 12.0) -> Dict[str, InferredCostBasis]:
-    """Scan all provided addresses across supported networks for stablecoin transactions."""
+    """Scan all provided addresses across supported networks for stablecoin transactions.
+
+    Runs each address and each EVM data source (Hyperliquid fills, EVM transfers)
+    in parallel via a thread pool. Merge order matches the old serial code:
+    Hyperliquid wins over EVM per symbol, and later addresses overwrite earlier
+    ones (except EVM results never overwrite an existing symbol).
+    """
+    if not addresses:
+        return {}
     merged: Dict[str, InferredCostBasis] = {}
 
+    # Classify first (serial) so invalid addresses raise before any network work.
+    kinds: List[str] = []  # "evm" | "solana" | "skip"
     for addr in addresses:
         chain = detect_chain(addr)
-        if chain in ("ethereum", "arbitrum", "base", "optimism", "polygon", "bsc", "avalanche", "hyperliquid", "hyperevm"):
-            # 1. Check Hyperliquid order-book fills
-            hl_res = infer_from_hyperliquid(addr, timeout=timeout)
-            for k, v in hl_res.items():
-                merged[k] = v
-
-            # 2. Check EVM transfer logs
-            evm_res = infer_from_evm(addr, timeout=timeout)
-            for k, v in evm_res.items():
-                if k not in merged:
-                    merged[k] = v
-
+        if chain in _EVM_LIKE_CHAINS:
+            kinds.append("evm")
         elif chain == "solana":
-            sol_res = infer_from_solana(addr, timeout=timeout)
-            for k, v in sol_res.items():
+            kinds.append("solana")
+        else:
+            kinds.append("skip")
+
+    # One job per data source so HL + EVM for the same address run concurrently.
+    # (addr_index, source, address) — source is "hl" | "evm" | "sol".
+    jobs: List[tuple] = []
+    for i, addr in enumerate(addresses):
+        if kinds[i] == "evm":
+            jobs.append((i, "hl", addr))
+            jobs.append((i, "evm", addr))
+        elif kinds[i] == "solana":
+            jobs.append((i, "sol", addr))
+
+    if not jobs:
+        return {}
+
+    def _run_job(job: tuple) -> tuple:
+        idx, source, addr = job
+        try:
+            if source == "hl":
+                return (idx, source, infer_from_hyperliquid(addr, timeout=timeout))
+            if source == "evm":
+                return (idx, source, infer_from_evm(addr, timeout=timeout))
+            return (idx, source, infer_from_solana(addr, timeout=timeout))
+        except Exception:
+            return (idx, source, {})
+
+    max_workers = min(len(jobs), 16)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        job_results = list(executor.map(_run_job, jobs))
+
+    # Group by address index, then merge in original address order.
+    by_addr: Dict[int, Dict[str, Dict[str, InferredCostBasis]]] = {}
+    for idx, source, res in job_results:
+        by_addr.setdefault(idx, {})[source] = res
+
+    for i in range(len(addresses)):
+        group = by_addr.get(i, {})
+        hl_res = group.get("hl", {})
+        for k, v in hl_res.items():
+            merged[k] = v
+        evm_res = group.get("evm", {})
+        for k, v in evm_res.items():
+            if k not in merged:
                 merged[k] = v
+        sol_res = group.get("sol", {})
+        for k, v in sol_res.items():
+            merged[k] = v
 
     return merged
